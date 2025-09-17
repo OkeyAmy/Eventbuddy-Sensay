@@ -27,7 +27,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       token: process.env.DISCORD_BOT_TOKEN!,
       supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL!,
       supabaseKey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      geminiApiKey: process.env.GEMINI_API_KEY!
+      sensayApiKey: process.env.SENSAY_API_KEY_SECRET!
     };
 
     // Validate required environment variables
@@ -35,7 +35,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!config.token) missingVars.push('DISCORD_BOT_TOKEN');
     if (!config.supabaseUrl) missingVars.push('NEXT_PUBLIC_SUPABASE_URL or VITE_SUPABASE_URL');
     if (!config.supabaseKey) missingVars.push('SUPABASE_SERVICE_ROLE_KEY');
-    if (!config.geminiApiKey) missingVars.push('GEMINI_API_KEY');
+    if (!config.sensayApiKey) missingVars.push('SENSAY_API_KEY_SECRET');
     // if (!process.env.OPENAI_API_KEY) missingVars.push('OPENAI_API_KEY');
 
     if (missingVars.length > 0) {
@@ -51,7 +51,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       hasToken: !!config.token,
       supabaseUrl: config.supabaseUrl,
       hasSupabaseKey: !!config.supabaseKey,
-      hasGeminiKey: !!config.geminiApiKey
+      hasSensayKey: !!config.sensayApiKey
     });
 
     const botManager = BotManager.getInstance();
@@ -66,7 +66,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         hasToken: !!config.token,
         supabaseUrl: config.supabaseUrl,
         hasSupabaseKey: !!config.supabaseKey,
-        hasGeminiKey: !!config.geminiApiKey
+        hasSensayKey: !!config.sensayApiKey
       }
     });
   } catch (error) {

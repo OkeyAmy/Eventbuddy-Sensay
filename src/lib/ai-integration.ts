@@ -1,65 +1,63 @@
 // AI Integration Layer - Wraps AI calls with rate limiting
-import { GoogleGenerativeAI, GenerativeModel, Content } from '@google/generative-ai';
-import { aiRateLimiter, AICallOptions } from './ai-rate-limiter';
+// Now using Sensay AI instead of Gemini
+import { sensayAIIntegration, SensayMessage, SensayResponse } from './sensay-ai-integration';
+import { AICallOptions } from './ai-rate-limiter';
+
+// Legacy compatibility types for existing code
+export interface Content {
+  role?: string; // Added for Discord bot compatibility
+  parts?: Array<{ text?: string; functionCall?: any; functionResponse?: any }>;
+}
+
+export interface GenerativeModel {
+  generateContent(request: { contents: Content[] }): Promise<SensayResponse>;
+}
 
 export class AIIntegration {
-  private gemini: GoogleGenerativeAI;
+  private sensay: typeof sensayAIIntegration;
 
-  constructor(apiKey: string) {
-    this.gemini = new GoogleGenerativeAI(apiKey);
+  constructor(apiKey?: string) {
+    // Use the singleton Sensay integration
+    this.sensay = sensayAIIntegration;
   }
 
-  // Wrap model.generateContent with rate limiting
+  // Wrap Sensay generateContent with rate limiting (legacy compatibility)
   async generateContentWithRateLimit(
-    model: GenerativeModel,
+    model: any, // Not used anymore, kept for compatibility
     request: { contents: Content[] },
     options: AICallOptions
-  ) {
-    const result = await aiRateLimiter.callAI(
-      () => model.generateContent(request),
-      options
-    );
+  ): Promise<SensayResponse> {
+    // Convert legacy Content format to SensayMessage format
+    const messages: SensayMessage[] = request.contents.map(content => ({
+      role: 'user', // Default to user, could be enhanced to detect role
+      content: content.parts?.map(part => part.text || '').join(' ') || ''
+    }));
 
-    if (!result.success) {
-      // Log telemetry
-      console.log(`[AI-Telemetry] ${result.errorType}: ${result.error} - Queue wait: ${result.queueWaitMs}ms, Attempts: ${result.attemptCount}`);
-      
-      // Throw with user-friendly message based on error type
-      throw new Error(result.error);
-    }
-
-    // Log successful call
-    if (result.fromCache) {
-      console.log(`[AI-Cache] Cache hit - Queue wait: ${result.queueWaitMs}ms`);
-    } else {
-      console.log(`[AI-Success] Response generated - Queue wait: ${result.queueWaitMs}ms, Attempts: ${result.attemptCount}`);
-    }
-
-    return result.data;
+    return this.sensay.generateContentWithRateLimit(messages, options);
   }
 
-  // Create a rate-limited model wrapper
-  createRateLimitedModel(modelName: string) {
-    const originalModel = this.gemini.getGenerativeModel({ model: modelName });
-    
+  // Create a rate-limited model wrapper (legacy compatibility)
+  createRateLimitedModel(modelName: string): GenerativeModel {
     return {
       // Wrap generateContent with rate limiting
-      async generateContent(request: { contents: Content[] }, options: Omit<AICallOptions, 'prompt'>) {
+      async generateContent(request: { contents: Content[] }, options?: Omit<AICallOptions, 'prompt'>) {
         // Extract prompt from request for cache key
         const prompt = this.extractPromptFromRequest(request);
         
-        return this.generateContentWithRateLimit(originalModel, request, {
-          ...options,
+        const messages: SensayMessage[] = request.contents.map(content => ({
+          role: 'user',
+          content: content.parts?.map(part => part.text || '').join(' ') || ''
+        }));
+
+        return sensayAIIntegration.generateContentWithRateLimit(messages, {
+          ...(options || {}),
           prompt,
         });
       },
-      
-      // Pass through other model methods if needed
-      ...originalModel,
     };
   }
 
-  // Extract text content for prompt key
+  // Extract text content for prompt key (legacy compatibility)
   private extractPromptFromRequest(request: { contents: Content[] }): string {
     return request.contents
       .map(content => 
@@ -73,14 +71,14 @@ export class AIIntegration {
 
   // Get system status
   getSystemStatus() {
-    return aiRateLimiter.getStatus();
+    return this.sensay.getSystemStatus();
   }
 
   // Get token bucket status for specific guild/user
   getTokenBucketStatus(guildId?: string, userId?: string) {
-    return aiRateLimiter.getTokenBucketStatus(guildId, userId);
+    return this.sensay.getTokenBucketStatus(guildId, userId);
   }
 }
 
-// Export singleton instance
-export const aiIntegration = new AIIntegration(process.env.GEMINI_API_KEY || '');
+// Export singleton instance - now using Sensay instead of Gemini
+export const aiIntegration = new AIIntegration();

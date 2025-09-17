@@ -17,8 +17,24 @@ import {
   VoiceChannel
 } from 'discord.js';
 import { createClient } from '@supabase/supabase-js';
-import { GoogleGenerativeAI, Content, FunctionDeclaration, GenerativeModel, SchemaType, Part } from '@google/generative-ai';
+// import { GoogleGenerativeAI, Content, FunctionDeclaration, GenerativeModel, SchemaType, Part } from '@google/generative-ai';
 import { aiIntegration } from './ai-integration';
+import type { Content } from './ai-integration';
+
+// Simplified types to replace Gemini types for now (function calling will be implemented later)
+interface FunctionDeclaration {
+  name: string;
+  description: string;
+  parameters: any;
+}
+
+enum SchemaType {
+  OBJECT = 'object',
+  STRING = 'string',
+  BOOLEAN = 'boolean',
+  NUMBER = 'number',
+  ARRAY = 'array'
+}
 import { DISCORD_BOT_PROMPTS } from '../prompts/discord-bot-prompts';
 import { ENHANCED_DISCORD_BOT_PROMPTS } from '../prompts/enhanced-discord-bot-prompts';
 import { ConversationLogger } from './conversation-logger';
@@ -28,7 +44,7 @@ export interface BotConfig {
   token: string;
   supabaseUrl: string;
   supabaseKey: string;
-  geminiApiKey: string;
+  sensayApiKey: string; // Changed from geminiApiKey to sensayApiKey
 }
 
 interface EventData {
@@ -77,7 +93,7 @@ interface ConversationHistory {
 export class EventBuddyBot {
   private client: Client;
   private supabase: ReturnType<typeof createClient>;
-  private gemini: GoogleGenerativeAI;
+  // private gemini: GoogleGenerativeAI; // Replaced with Sensay AI integration
   private isReady = false;
   private serverUrl: string;
   private conversationMemory: Map<string, ConversationHistory[]> = new Map();
@@ -327,8 +343,8 @@ export class EventBuddyBot {
     // Initialize Supabase client
     this.supabase = createClient(config.supabaseUrl, config.supabaseKey);
 
-    // Initialize Gemini AI
-    this.gemini = new GoogleGenerativeAI(config.geminiApiKey);
+    // Initialize Sensay AI integration (via aiIntegration)
+    // The sensayAIIntegration is already initialized in ai-integration.ts
 
     // Initialize conversation logger
     this.conversationLogger = new ConversationLogger(config.supabaseUrl, config.supabaseKey);
@@ -672,11 +688,8 @@ export class EventBuddyBot {
         console.log(`📚 Database context length: ${contextFromDB.length} characters`);
       }
 
-      // Analyze the message with AI using function calling
-      const model = this.gemini.getGenerativeModel({ 
-        model: 'gemini-2.5-flash',
-        tools: [{ functionDeclarations: this.functionDeclarations }]
-      });
+      // Analyze the message with AI using Sensay AI integration
+      const model = aiIntegration.createRateLimitedModel('sensay-claude-3-7-sonnet-latest');
 
       // Build conversation context with user context and database context
       const isOwner = this.isServerOwner(message.author.id, message.guildId);
@@ -729,7 +742,7 @@ Respond only if criteria are met; otherwise remain silent.`;
       }
 
       const contents: Content[] = [
-        { role: 'user', parts: [{ text: systemPrompt }] },
+        { role: 'user', parts: [{ text: systemPrompt }] } as Content,
         ...history.map(h => ({
           role: h.role,
           parts: h.parts.filter(p => p.text || p.functionCall || p.functionResponse).map(p => ({
@@ -737,25 +750,28 @@ Respond only if criteria are met; otherwise remain silent.`;
             functionCall: p.functionCall,
             functionResponse: p.functionResponse
           }))
-        })) as Content[]
+        }) as Content)
       ];
 
       console.log(`🧠 Generating AI response with ${this.functionDeclarations.length} available functions`);
       console.log(`🎯 Message analysis: "${message.content.substring(0, 50)}${message.content.length > 50 ? '...' : ''}"`);
 
-      // Generate response with function calling using rate limiter
-      this.debugLog('generateContent.request', { model: 'gemini-2.5-flash', contentsLength: contents.length, sampleContents: contents.slice(0,2) });
+      // Generate response using Sensay AI integration
+      this.debugLog('generateContent.request', { model: 'sensay-claude-3-7-sonnet-latest', contentsLength: contents.length, sampleContents: contents.slice(0,2) });
       let result = await aiIntegration.generateContentWithRateLimit(model, { contents }, {
         guildId: message.guild?.id,
         userId: message.author.id,
         prompt: message.content,
         context: { messageId: message.id, channelId: message.channel.id }
       });
-      let response = result.response;
-      this.debugLog('generateContent.response', { responsePreview: typeof response?.text === 'function' ? response.text().slice(0,200) : null, hasFunctionCalls: !!response.functionCalls });
+      
+      // Sensay returns a different format: { content: string, success: boolean }
+      let response = result;
+      this.debugLog('generateContent.response', { responsePreview: result.content?.slice(0,200), success: result.success });
 
-      // Handle function calls if present
-      const functionCalls = typeof response.functionCalls === 'function' ? response.functionCalls() : response.functionCalls;
+      // For now, we'll handle this as a simple text response without function calls
+      // TODO: Implement function calling support for Sensay in future iteration
+      const functionCalls = null; // Disabled function calls for initial Sensay integration
       if (functionCalls && functionCalls.length > 0) {
         console.log(`🔧 Executing ${functionCalls.length} function calls`);
         this.debugLog('functionCalls.list', functionCalls.map((f: any) => ({ name: f.name, argsPreview: JSON.stringify(f.args).slice(0,200) })));
@@ -809,7 +825,7 @@ Respond only if criteria are met; otherwise remain silent.`;
         // Generate final response incorporating function results
         console.log(`🤖 Generating final AI response incorporating function results...`);
         const finalContents: Content[] = [
-          { role: 'user', parts: [{ text: systemPrompt }] },
+          { role: 'user', parts: [{ text: systemPrompt }] } as Content,
           ...history.map(h => ({
             role: h.role,
             parts: h.parts.filter(p => p.text || p.functionCall || p.functionResponse).map(p => ({
@@ -817,7 +833,7 @@ Respond only if criteria are met; otherwise remain silent.`;
               functionCall: p.functionCall,
               functionResponse: p.functionResponse
             }))
-          })) as Content[]
+          }) as Content)
         ];
 
         result = await aiIntegration.generateContentWithRateLimit(model, { contents: finalContents }, {
@@ -826,15 +842,15 @@ Respond only if criteria are met; otherwise remain silent.`;
           prompt: message.content + '_followup',
           context: { messageId: message.id, channelId: message.channel.id, followup: true }
         });
-        response = result.response;
+        response = result; // Sensay returns the response directly
       }
 
-      // Extract response text - let AI handle spam filtering via prompting
-      const responseText = response.text();
+      // Extract response text from Sensay format
+      const responseText = response.content || '';
       console.log(`🤖 AI response preview: "${responseText.substring(0, 100)}${responseText.length > 100 ? '...' : ''}"`);
 
       // Send response and log it
-      if (responseText && responseText.trim()) {
+      if (responseText && responseText.trim() && response.success) {
         // Update response tracker to prevent duplicates
         this.responseTracker.set(responseKey, currentTime);
         // Mark this message as replied to
@@ -1281,14 +1297,14 @@ Respond only if criteria are met; otherwise remain silent.`;
   }
 
   private async generateAIResponse(message: string, context: any): Promise<AIResponse> {
-    const model = this.gemini.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const model = aiIntegration.createRateLimitedModel('sensay-claude-3-7-sonnet-latest');
 
     const styleOverride = `\n\nSTYLE OVERRIDE (MANDATORY):\n- Keep replies short (1–2 sentences) unless listing bullets.\n- Use casual, Gen‑Z tone; light emojis ok; avoid corporate/overly formal tone.\n- Be direct; no fluff.`;
     const systemPrompt = `${ENHANCED_DISCORD_BOT_PROMPTS.SYSTEM_PROMPT}${styleOverride}`;
 
     const contents: Content[] = [
-      { role: 'user', parts: [{ text: systemPrompt }] },
-      { role: 'user', parts: [{ text: message }] }
+      { role: 'user', parts: [{ text: systemPrompt }] } as Content,
+      { role: 'user', parts: [{ text: message }] } as Content
     ];
 
     const result = await aiIntegration.generateContentWithRateLimit(
@@ -1301,10 +1317,11 @@ Respond only if criteria are met; otherwise remain silent.`;
         context
       }
     );
-    const response = result.response;
+    // Sensay returns the response directly
+    const response = result;
     
     return {
-      text: response.text(),
+      text: response.content || '',
       shouldTag: false,
       suggestedTags: [],
       engagementLevel: 'medium'
