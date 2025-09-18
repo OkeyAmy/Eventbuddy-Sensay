@@ -73,7 +73,7 @@ export class SensayAIIntegration {
         }
       }
       
-      // Step 3: List all replicas for this user
+      // Step 3: List all replicas for this user (filter by fixed slug)
       console.log('Step 3: Listing all replicas for user...');
       let replicas;
       try {
@@ -88,9 +88,7 @@ export class SensayAIIntegration {
       let uuid: string | undefined;
       if (replicas && replicas.items) {
         console.log('Looking for an existing replica');
-        const sampleReplica = replicas.items.find(replica => 
-          replica.slug?.includes('eventbuddy') || replica.name?.includes('EventBuddy')
-        );
+        const sampleReplica = replicas.items.find(replica => replica.slug === SENSAY_REPLICA_SLUG);
         if (sampleReplica) {
           uuid = sampleReplica.uuid;
           console.log(`✅ Found existing replica: ${sampleReplica.name} with UUID: ${uuid}`);
@@ -105,41 +103,46 @@ export class SensayAIIntegration {
       if (!uuid) {
         console.log('Step 4: Creating new replica...');
         try {
-          // Generate a unique slug by adding a timestamp
-          const timestamp = Date.now();
-          const uniqueSlug = `${SENSAY_REPLICA_SLUG}-${timestamp}`;
-          
-          console.log(`Generated unique slug: ${uniqueSlug}`);
-          
+          // Sensay requires shortDescription to be <= 50 chars
+          const shortDescription = "Discord event management AI assistant".slice(0, 50);
+
           const replicaPayload = {
             name: "EventBuddy AI Assistant",
-            shortDescription: "AI assistant for Discord event management and community engagement",
+            shortDescription,
             greeting: "Hello! I'm EventBuddy, your AI assistant for managing Discord events and engaging with your community. How can I help you today?",
-            slug: uniqueSlug,
+            slug: SENSAY_REPLICA_SLUG,
             ownerID: SENSAY_USER_ID,
             llm: {
               model: 'claude-3-7-sonnet-latest' as const,
               memoryMode: 'prompt-caching' as const,
-              systemMessage: "You are EventBuddy, a helpful AI assistant specialized in Discord event management. You help users create, manage, and engage with community events. You are knowledgeable about Discord features, event planning, community management, and can provide helpful suggestions for improving event engagement."
+              // The system prompt used at runtime will be supplied via message contents; keep a minimal default here
+              systemMessage: "EventBuddy Discord assistant"
             }
           };
           console.log('Creating replica with payload:', replicaPayload);
           
           const newReplica = await this.sensayClient.replicas.postV1Replicas(SENSAY_API_VERSION, replicaPayload);
           uuid = newReplica.uuid;
-          console.log(`✅ Created new replica with slug: ${uniqueSlug}, UUID: ${uuid}`);
+          console.log(`✅ Created new replica with slug: ${SENSAY_REPLICA_SLUG}, UUID: ${uuid}`);
         } catch (createReplicaError: any) {
           console.error('❌ Failed to create replica:', createReplicaError);
           
           // Handle 409 Conflict specifically
           if (createReplicaError.status === 409) {
-            console.error('409 Conflict: A replica with this slug already exists');
-            const specificError = new Error(
-              `A replica with slug "${SENSAY_REPLICA_SLUG}" already exists but couldn't be accessed. ` +
-              `This typically happens when a replica with the same slug exists but is owned by a different user. ` +
-              `Try using a different slug by modifying SENSAY_REPLICA_SLUG in src/constants/sensay-auth.ts.`
-            );
-            throw specificError;
+            console.error('409 Conflict: A replica with this slug already exists, attempting to fetch it');
+            // Try to fetch the existing replica by listing and reuse it
+            try {
+              const retry = await this.sensayClient.replicas.getV1Replicas();
+              const existing = retry?.items?.find((r: any) => r.slug === SENSAY_REPLICA_SLUG);
+              if (existing) {
+                uuid = existing.uuid;
+                console.log(`✅ Reusing existing replica UUID after conflict: ${uuid}`);
+              } else {
+                throw new Error('Replica exists but could not be retrieved with current credentials.');
+              }
+            } catch (retryErr) {
+              throw retryErr;
+            }
           }
           
           throw createReplicaError;
@@ -183,10 +186,30 @@ export class SensayAIIntegration {
         // Initialize the session and get a replica UUID
         const replicaUuid = await this.initializeSession();
         
-        // Get the last user message as the prompt
-        const userMessage = messages.filter(msg => msg.role === 'user').pop();
-        if (!userMessage) {
-          throw new Error('No user message found in the conversation');
+        // Flatten the full prompt (system + db context + user) into a single content string
+        const combinedContent = this.formatContentsToPlaintext(messages as unknown as any[]);
+        if (!combinedContent || !combinedContent.trim()) {
+          // Fallback to last user message if flattening failed
+          const userMessage = messages.filter(msg => (msg as any).role === 'user').pop();
+          if (!userMessage) {
+            throw new Error('No user message found in the conversation');
+          }
+          
+          // Use the standard non-streaming chat completions endpoint
+          const response = await this.sensayClient.chatCompletions.postV1ReplicasChatCompletions(
+            replicaUuid,
+            SENSAY_API_VERSION,
+            {
+              content: userMessage.content,
+              source: 'web',
+              skip_chat_history: false
+            }
+          );
+  
+          return {
+            content: response.content,
+            success: response.success
+          };
         }
 
         // Use the standard non-streaming chat completions endpoint
@@ -194,7 +217,7 @@ export class SensayAIIntegration {
           replicaUuid,
           SENSAY_API_VERSION,
           {
-            content: userMessage.content,
+            content: combinedContent,
             source: 'web',
             skip_chat_history: false
           }
@@ -244,10 +267,30 @@ export class SensayAIIntegration {
 
   // Extract text content for prompt key
   private extractPromptFromRequest(request: { contents: SensayMessage[] }): string {
-    return request.contents
-      .map(msg => msg.content || '')
-      .join(' ')
-      .substring(0, 500); // Limit length for cache key
+    const flattened = this.formatContentsToPlaintext(request.contents as unknown as any[]);
+    return flattened.substring(0, 500);
+  }
+
+  // Convert the mixed Content[] shape (with parts) into a single plaintext string
+  private formatContentsToPlaintext(contents: any[]): string {
+    if (!Array.isArray(contents)) return '';
+    const lines: string[] = [];
+    for (const item of contents) {
+      const role = (item?.role || 'user').toString().toUpperCase();
+      let text = '';
+      if (Array.isArray(item?.parts) && item.parts.length > 0) {
+        const partTexts = item.parts
+          .map((p: any) => p?.text)
+          .filter((t: any) => typeof t === 'string' && t.trim().length > 0);
+        text = partTexts.join('\n');
+      } else if (typeof item?.content === 'string') {
+        text = item.content;
+      }
+      if (text.trim().length > 0) {
+        lines.push(`${role}: ${text}`);
+      }
+    }
+    return lines.join('\n\n');
   }
 
   // Get system status

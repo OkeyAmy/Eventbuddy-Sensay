@@ -104,6 +104,7 @@ export class EventBuddyBot {
   private responseTracker: Map<string, number> = new Map(); // Track response timestamps
   private repliedMessageIds: Set<string> = new Set(); // Guard to ensure one reply per message
   private allowTypingIndicator: boolean = process.env.ALLOW_TYPING_INDICATOR === 'true';
+  private inFlightMessages: Set<string> = new Set(); // Prevent parallel double-processing
 
   private debugLog(label: string, data?: any) {
     if (!this.debugLogging) return;
@@ -139,6 +140,38 @@ export class EventBuddyBot {
     } catch {
       return false;
     }
+  }
+
+  // Parse function calls from Sensay response
+  private parseSensayFunctionCalls(content: string): Array<{ name: string; args: any }> | null {
+    if (!content) return null;
+    
+    // Look for function call patterns like: FUNCTION_CALL:get_active_events:{}
+    const functionCallPattern = /FUNCTION_CALL:(\w+):(\{.*?\})/g;
+    const calls: Array<{ name: string; args: any }> = [];
+    
+    let match;
+    while ((match = functionCallPattern.exec(content)) !== null) {
+      try {
+        const functionName = match[1];
+        const argsJson = match[2];
+        const args = JSON.parse(argsJson);
+        calls.push({ name: functionName, args });
+      } catch (error) {
+        console.error('❌ Error parsing function call args:', error);
+      }
+    }
+    
+    return calls.length > 0 ? calls : null;
+  }
+
+  // Clean function calls from response content
+  private cleanSensayResponse(content: string): string {
+    if (!content) return content;
+    
+    // Remove function call patterns from the response
+    const functionCallPattern = /FUNCTION_CALL:(\w+):(\{.*?\})/g;
+    return content.replace(functionCallPattern, '').trim();
   }
 
   // Helper method to check if user is server owner
@@ -750,7 +783,8 @@ Respond only if criteria are met; otherwise remain silent.`;
             functionCall: p.functionCall,
             functionResponse: p.functionResponse
           }))
-        }) as Content)
+        }) as Content),
+        { role: 'user', parts: [{ text: `Current user message: "${message.content}"` }] } as Content
       ];
 
       console.log(`🧠 Generating AI response with ${this.functionDeclarations.length} available functions`);
@@ -769,9 +803,8 @@ Respond only if criteria are met; otherwise remain silent.`;
       let response = result;
       this.debugLog('generateContent.response', { responsePreview: result.content?.slice(0,200), success: result.success });
 
-      // For now, we'll handle this as a simple text response without function calls
-      // TODO: Implement function calling support for Sensay in future iteration
-      const functionCalls = null; // Disabled function calls for initial Sensay integration
+      // Parse Sensay response for function calls
+      const functionCalls = this.parseSensayFunctionCalls(response.content);
       if (functionCalls && functionCalls.length > 0) {
         console.log(`🔧 Executing ${functionCalls.length} function calls`);
         this.debugLog('functionCalls.list', functionCalls.map((f: any) => ({ name: f.name, argsPreview: JSON.stringify(f.args).slice(0,200) })));
@@ -845,8 +878,9 @@ Respond only if criteria are met; otherwise remain silent.`;
         response = result; // Sensay returns the response directly
       }
 
-      // Extract response text from Sensay format
-      const responseText = response.content || '';
+      // Extract response text from Sensay format and clean function calls
+      const rawResponseText = response.content || '';
+      const responseText = this.cleanSensayResponse(rawResponseText);
       console.log(`🤖 AI response preview: "${responseText.substring(0, 100)}${responseText.length > 100 ? '...' : ''}"`);
 
       // Send response and log it
@@ -922,9 +956,24 @@ Respond only if criteria are met; otherwise remain silent.`;
         return;
       }
 
+      // Suppress transient upstream errors to avoid duplicate noisy replies
+      const transientErrors = [
+        'AI service is temporarily unavailable',
+        "I'm getting a bit busy",
+        'Request timed out',
+        'Temporary service issue',
+        'Please try again'
+      ];
+
+      const errMsgRaw = (error as any)?.message || '';
+      if (transientErrors.some(t => errMsgRaw.includes(t))) {
+        console.log('⏳ Suppressing transient upstream error reply to avoid duplicates:', errMsgRaw);
+        return;
+      }
+
       // Send a contextual error message to the user when available
       try {
-        const errMsg = (error as any)?.message || '';
+        const errMsg = errMsgRaw;
         console.log(`🔍 Processing error message: "${errMsg}"`);
         
         const isFriendly = errMsg.includes("I'm getting a bit busy") ||
@@ -956,6 +1005,8 @@ Respond only if criteria are met; otherwise remain silent.`;
     } finally {
       // Stop typing indicator
       stopTyping();
+      // Clear in-flight guard
+      this.inFlightMessages.delete(message.id);
     }
   }
 

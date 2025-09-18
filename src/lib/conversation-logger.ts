@@ -220,7 +220,41 @@ export class ConversationLogger {
       // Get channel metadata
       const channelMeta = await this.getChannelMetadata(channelId);
 
+      // Get active events from database
+      let activeEventsInfo = '';
+      try {
+        const { data: events } = await this.supabase
+          .from('events')
+          .select('*')
+          .eq('guild_id', guildId)
+          .eq('status', 'active')
+          .order('created_at', { ascending: false });
+
+        if (events && events.length > 0) {
+          const eventList = events.map((e: any) => {
+            const name = e.event_name ?? e.name ?? e.eventName ?? 'Unnamed Event';
+            const description = e.event_description ?? e.description ?? '';
+            const date = e.event_date ?? e.date ?? '';
+            const time = e.event_time ?? e.time ?? '';
+            const location = e.event_location ?? e.location ?? '';
+            const others = e.others ?? '';
+            return `• **${name}** (Status: ${e.status})${description ? `\n  Description: ${description}` : ''}${date ? `\n  Date: ${date}` : ''}${time ? `\n  Time: ${time}` : ''}${location ? `\n  Location: ${location}` : ''}${others ? `\n  Additional Info: ${others}` : ''}`;
+          }).join('\n');
+          activeEventsInfo = `\nCURRENT ACTIVE EVENTS IN DATABASE:\n${eventList}\n`;
+        } else {
+          activeEventsInfo = '\nCURRENT ACTIVE EVENTS IN DATABASE:\nNo active events found in the database.\n';
+        }
+      } catch (eventsError) {
+        console.error('❌ Error getting events for AI context:', eventsError);
+        activeEventsInfo = '\nCURRENT ACTIVE EVENTS IN DATABASE:\nError retrieving events from database.\n';
+      }
+
       let contextParts = [];
+
+      // Add active events information at the top
+      if (activeEventsInfo) {
+        contextParts.push(activeEventsInfo);
+      }
 
       // Add channel context
       if (channelMeta) {
