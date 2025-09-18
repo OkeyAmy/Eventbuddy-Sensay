@@ -257,13 +257,36 @@ BOT_ADMIN_TOKEN=your_secure_random_token
    - Select scopes: `bot`, `applications.commands`
    - Select permissions: `Send Messages`, `Use Slash Commands`, `Manage Channels`, `Read Message History`
 
-### 6️⃣ AI Setup
+### 6️⃣ AI Setup (Sensay)
 
-1. **Get Gemini API Key**:
-   - Go to [Google AI Studio](https://aistudio.google.com/)
-   - Sign in with Google account
-   - Click "Get API Key" → "Create API Key"
-   - Copy the API key
+1. **Create Sensay API Key & Organization ID**:
+   - Go to the Sensay Dashboard (`https://sensay.io`) and sign in.
+   - In the dashboard, create an API key (Organization or Service key) and copy it.
+   - Note your Organization ID from the account settings.
+
+2. **Configure environment variables** (create a `.env.local` at project root):
+
+```env
+# Sensay
+SENSAY_API_KEY_SECRET=your_sensay_api_key_here
+SENSAY_ORGANIZATION_ID=your_organization_id_here
+
+# Discord
+DISCORD_BOT_TOKEN=your_discord_bot_token
+DISCORD_CLIENT_ID=your_discord_client_id
+
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_key
+```
+
+3. **Replica behavior & function-calling**:
+   - The integration will attempt to create or reuse a Sensay Replica for the bot automatically. You can pre-create a Replica in Sensay Studio and set its slug/uuid in `src/constants/sensay-auth.ts` if you prefer.
+   - This repo supports simple prompt-driven function-calling where Sensay can indicate a function invocation using the `FUNCTION_CALL:<name>:<json>` pattern; the bot parses and executes local functions (e.g. `get_active_events`) and sends the results back to the model for a final reply.
+
+4. **Notes & recommendations**:
+   - Keep your Sensay key private and never commit it to git.
+   - For production, pre-create and configure a Replica (set the slug/uuid) to avoid on-the-fly creation and permission issues.
 
 ---
 
