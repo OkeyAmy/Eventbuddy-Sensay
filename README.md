@@ -43,7 +43,7 @@
 
 ### 🎪 What Makes EventBuddy Special?
 
-- **🧠 AI-Powered Intelligence**: Uses Google Gemini AI for natural, human-like conversations
+- **🧠 AI-Powered Intelligence**: Uses Sensay Replica AI for natural, human-like conversations
 - **📊 Smart Analytics**: Real-time insights into attendee engagement and community growth
 - **🔄 Automated Workflows**: Seamless CSV import, channel creation, and networking facilitation
 - **🛡️ Privacy-First Design**: All admin operations work in private channels/DMs
