@@ -150,7 +150,7 @@ Bot: "Great! I'd recommend connecting with @JaneSmith who's also a developer and
 - **Bot Framework**: Discord.js v14
 - **API**: Next.js API Routes
 - **Database**: PostgreSQL (via Supabase)
-- **AI**: Google Gemini API
+- **AI**: Sensay Replica API
 - **Authentication**: Supabase Auth
 
 ### 🚀 Deployment
@@ -173,7 +173,6 @@ Before setting up EventBuddy, ensure you have:
 ### 🔑 Required Accounts
 - **Discord Developer Account** ([Sign up](https://discord.com/developers/applications))
 - **Supabase Account** ([Sign up](https://supabase.com))
-- **Google AI Studio Account** ([Sign up](https://aistudio.google.com/))
 
 ### 💻 System Requirements
 - **RAM**: 2GB minimum, 4GB recommended
@@ -213,8 +212,6 @@ DISCORD_REDIRECT_URI=http://localhost:3000/api/auth/discord-callback
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
 SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_key
 
-# AI Configuration
-GEMINI_API_KEY=your_gemini_api_key
 
 # Application Configuration
 NEXT_PUBLIC_APP_URL=http://localhost:5173
@@ -387,7 +384,7 @@ eventbuddy/
 | `DISCORD_REDIRECT_URI` | OAuth redirect URI | ✅ | - |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL | ✅ | - |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key | ✅ | - |
-| `GEMINI_API_KEY` | Google Gemini API key | ✅ | - |
+| `SENSAY_REPLICA_KEY` | Google Gemini API key | ✅ | - |
 | `NEXT_PUBLIC_APP_URL` | Frontend URL | ✅ | - |
 | `BOT_ADMIN_TOKEN` | Admin token for bot control | ❌ | - |
 
@@ -573,7 +570,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Ensure CSV is properly formatted (no extra spaces, correct headers)
 
 **AI not working:**
-- Verify Gemini API key is valid
+- Verify SENSAY API key is valid
 - Check API quotas and limits
 - Review error logs in console
 - Test with simple commands first
